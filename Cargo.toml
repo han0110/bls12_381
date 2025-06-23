@@ -1,6 +1,6 @@
 [package]
-name = "bls12_381"
-version = "0.8.0"
+name = "sp1_bls12_381"
+version = "0.8.0-sp1-5.0.0"
 authors = [
     "Bhargav Annem <bhargav.annem@gmail.com>",
     "Sean Bowe <ewillbefull@gmail.com>",
@@ -27,7 +27,7 @@ subtle = { version = "2.2.1", default-features = false }
 zeroize = { version = "1.4", optional = true, default-features = false }
 hex = { version = "0.4", optional = true, default-features = false, features = ["alloc"] }
 
-[target.'cfg(target_os = "zkvm")'.dependencies]
+[target.'cfg(all(target_os = "zkvm", target_vendor = "succinct"))'.dependencies]
 sp1-lib = { version = "4.0.0", default-features = false }
 
 [dev-dependencies]
@@ -69,3 +69,9 @@ required-features = ["groups"]
 name = "hash_to_curve"
 harness = false
 required-features = ["experimental"]
+
+[lints.rust.unexpected_cfgs]
+level = "warn"
+check-cfg = [
+    'cfg(target_vendor, values("succinct"))',
+]

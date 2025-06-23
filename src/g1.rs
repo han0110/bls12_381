@@ -24,7 +24,7 @@ cfg_if::cfg_if! {
     }
 }
 // Accelerated precompiles for zkvm. Defined directly to prevent circular dependency issues.
-#[cfg(target_os = "zkvm")]
+#[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
 use sp1_lib::{bls12381::decompress_pubkey, syscall_bls12381_add, syscall_bls12381_double};
 
 /// This is an element of $\mathbb{G}_1$ represented in the affine coordinate space.
@@ -439,7 +439,7 @@ impl G1Affine {
         }
 
         cfg_if::cfg_if! {
-            if #[cfg(target_os = "zkvm")] {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
                 // The add precompile only works when P != Q and P != -Q
                 if self.x != rhs.x {
                     // In this case, we know that P != Q and P != -Q, since both Q and -Q have the same `x` coordinate
@@ -486,7 +486,7 @@ impl G1Affine {
             return self;
         }
         cfg_if::cfg_if! {
-            if #[cfg(target_os = "zkvm")] {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
                 self.x.mul_r_inv_internal();
                 self.y.mul_r_inv_internal();
                 unsafe {
@@ -861,7 +861,7 @@ impl G1Projective {
     }
 
     /// Multiply `self` by `crate::BLS_X`, using double and add.
-    #[cfg(not(target_os = "zkvm"))]
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "succinct")))]
     fn mul_by_x(&self) -> G1Projective {
         let mut xself = G1Projective::identity();
         // NOTE: in BLS12-381 we can just skip the first bit.
@@ -882,7 +882,7 @@ impl G1Projective {
         xself
     }
 
-    #[cfg(target_os = "zkvm")]
+    #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
     fn mul_by_x(&self) -> G1Projective {
         let mut xself = G1Affine::identity();
 
@@ -1176,7 +1176,6 @@ impl Group for G1Projective {
         self.is_identity()
     }
 
-    #[must_use]
     fn double(&self) -> Self {
         self.double()
     }
