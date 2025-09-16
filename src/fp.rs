@@ -17,6 +17,11 @@ use {
     sp1_lib::{syscall_bls12381_fp_addmod, syscall_bls12381_fp_mulmod, syscall_bls12381_fp_submod},
 };
 
+#[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+use {
+    ziskos::{add_fp_bls12_381, neg_fp_bls12_381, mul_fp_bls12_381, square_fp_bls12_381, inv_fp_bls12_381, sqrt_fp_bls12_381, sub_fp_bls12_381},
+};
+
 // The internal representation of this type is six 64-bit unsigned
 // integers in little-endian order. `Fp` values are always in
 // Montgomery form; i.e., Scalar(a) = aR mod p, with R = 2^384.
@@ -90,7 +95,7 @@ const MODULUS: [u64; 6] = [
 const INV: u64 = 0x89f3_fffc_fffc_fffd;
 
 /// R_INV = (2^384)^(-1) mod p
-#[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+#[cfg(all(target_os = "zkvm", any(target_vendor = "succinct", target_vendor = "zisk")))]
 const R_INV: Fp = Fp([
     0xf4d38259380b4820,
     0x7fe11274d898fafb,
@@ -325,6 +330,7 @@ impl Fp {
     }
 
     /// CPU version of the exponentiation operation. Necessary to prevent syscalls in unconstrained mode.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     pub(crate) fn cpu_pow_vartime(&self, by: &[u64; 6]) -> Self {
         let mut res = Self::one();
         for e in by.iter().rev() {
@@ -358,6 +364,7 @@ impl Fp {
 
     #[inline]
     /// CPU version of the square-root operation. Necessary to prevent syscalls in unconstrained mode.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     pub(crate) fn cpu_sqrt(&self) -> CtOption<Self> {
         // We use Shank's method, as p = 3 (mod 4). This means
         // we only need to exponentiate by (p+1)/4. This only
@@ -378,53 +385,67 @@ impl Fp {
 
     #[inline]
     pub fn sqrt(&self) -> CtOption<Self> {
-        #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
-        {
-            if self.is_zero().into() {
-                return CtOption::new(Self::zero(), Choice::from(1u8));
-            }
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
+                if self.is_zero().into() {
+                    return CtOption::new(Self::zero(), Choice::from(1u8));
+                }
 
-            let nqr = Self::from_bytes(&{
-                let mut buf = [0; 48];
-                buf[47] = 2;
-                buf
-            })
-            .unwrap();
+                let nqr = Self::from_bytes(&{
+                    let mut buf = [0; 48];
+                    buf[47] = 2;
+                    buf
+                })
+                .unwrap();
 
-            // Use a hook to see if we can decompress with the syscall.
-            sp1_lib::unconstrained! {
-                sp1_lib::io::write(sp1_lib::io::FD_BLS12_381_SQRT, &self.to_bytes());
-            }
+                // Use a hook to see if we can decompress with the syscall.
+                sp1_lib::unconstrained! {
+                    sp1_lib::io::write(sp1_lib::io::FD_BLS12_381_SQRT, &self.to_bytes());
+                }
 
-            // The first byte is the status of the sqrt syscall.
-            let status = read_vec()[0];
-            // Assert the hook only writes back 48 bytes.
-            let byte_vec = read_vec().try_into().unwrap();
+                // The first byte is the status of the sqrt syscall.
+                let status = read_vec()[0];
+                // Assert the hook only writes back 48 bytes.
+                let byte_vec = read_vec().try_into().unwrap();
 
-            match status {
-                0 => {
-                    let root = Fp::from_bytes(&byte_vec).unwrap();
+                match status {
+                    0 => {
+                        let root = Fp::from_bytes(&byte_vec).unwrap();
 
-                    assert!(root * root == *self * nqr);
+                        assert!(root * root == *self * nqr);
 
+                        CtOption::new(Fp::zero(), Choice::from(0u8))
+                    }
+                    _ => {
+                        let root = Fp::from_bytes(&byte_vec).unwrap();
+
+                        assert!(root * root == *self);
+
+                        CtOption::new(root, Choice::from(1u8))
+                    }
+                }
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                if self.is_zero().into() {
+                    return CtOption::new(Self::zero(), Choice::from(1u8));
+                }
+
+                let self_canonical = self.mul_r_inv_internal();
+                let (sqrt, is_qr) = sqrt_fp_bls12_381(&self_canonical.0);
+                if is_qr {
+                    let sqrt_internal = Fp(sqrt).mul_r_internal();
+                    CtOption::new(sqrt_internal, Choice::from(1u8))
+                } else {
                     CtOption::new(Fp::zero(), Choice::from(0u8))
                 }
-                _ => {
-                    let root = Fp::from_bytes(&byte_vec).unwrap();
-
-                    assert!(root * root == *self);
-
-                    CtOption::new(root, Choice::from(1u8))
-                }
+            } else {
+                self.cpu_sqrt()
             }
         }
-
-        #[cfg(not(all(target_os = "zkvm", target_vendor = "succinct")))]
-        self.cpu_sqrt()
     }
 
     #[inline]
     /// CPU version of the inversion operation. Necessary to prevent syscalls in unconstrained mode.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     pub(crate) fn cpu_invert(&self) -> CtOption<Self> {
         // Exponentiate by p - 2
         let inv = self.cpu_pow_vartime(&[
@@ -440,27 +461,37 @@ impl Fp {
     }
 
     pub fn invert(&self) -> CtOption<Self> {
-        #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
-        {
-            if self.is_zero().into() {
-                return CtOption::new(Self::zero(), Choice::from(0u8));
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
+                if self.is_zero().into() {
+                    return CtOption::new(Self::zero(), Choice::from(0u8));
+                }
+
+                unconstrained! {
+                    sp1_lib::io::write(sp1_lib::io::FD_BLS12_381_INVERSE, &self.to_bytes());
+                }
+
+                let byte_vec = read_vec().try_into().unwrap();
+
+                let inv = Fp::from_bytes(&byte_vec).unwrap();
+
+                assert!(self * &inv == Fp::one(), "Invalid hint: Fp invert");
+
+                CtOption::new(inv, (self * inv).ct_eq(&Fp::one()))
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                if self.is_zero().into() {
+                    return CtOption::new(Self::zero(), Choice::from(0u8));
+                }
+
+                let self_canonical = self.mul_r_inv_internal();
+                let inv = Fp(inv_fp_bls12_381(&self_canonical.0));
+                let inv_internal = inv.mul_r_internal();
+
+                CtOption::new(inv_internal, Choice::from(1u8))
+            } else {
+                self.cpu_invert()
             }
-
-            unconstrained! {
-                sp1_lib::io::write(sp1_lib::io::FD_BLS12_381_INVERSE, &self.to_bytes());
-            }
-
-            let byte_vec = read_vec().try_into().unwrap();
-
-            let inv = Fp::from_bytes(&byte_vec).unwrap();
-
-            assert!(self * &inv == Fp::one(), "Invalid hint: Fp invert");
-
-            CtOption::new(inv, (self * inv).ct_eq(&Fp::one()))
         }
-
-        #[cfg(not(all(target_os = "zkvm", target_vendor = "succinct")))]
-        self.cpu_invert()
     }
 
     #[inline]
@@ -519,6 +550,8 @@ impl Fp {
                     syscall_bls12381_fp_addmod(out.0.as_mut_ptr() as *mut u32, rhs.0.as_ptr() as *const u32);
                 }
                 out
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                Fp(add_fp_bls12_381(&self.0, &rhs.0))
             } else {
                 self.cpu_add(rhs)
             }
@@ -559,6 +592,8 @@ impl Fp {
                     syscall_bls12381_fp_submod(out.0.as_mut_ptr() as *mut u32, self.0.as_ptr() as *const u32);
                 }
                 out
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                Fp(neg_fp_bls12_381(&self.0))
             } else {
                 self.cpu_neg()
             }
@@ -585,6 +620,8 @@ impl Fp {
                     syscall_bls12381_fp_submod(out.0.as_mut_ptr() as *mut u32, rhs.0.as_ptr() as *const u32);
                 }
                 out
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                Fp(sub_fp_bls12_381(&self.0, &rhs.0))
             } else {
                 rhs.neg().add(self)
             }
@@ -820,6 +857,9 @@ impl Fp {
                 }
                 out.mul_r_inv_internal();
                 out
+            }  else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                let out = Fp(mul_fp_bls12_381(&self.0, &rhs.0));
+                out.mul_r_inv_internal()
             } else {
                 self.cpu_mul(rhs)
             }
@@ -840,6 +880,12 @@ impl Fp {
         }
     }
 
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub(crate) fn mul_r_inv_internal(&self) -> Fp {
+        Fp(mul_fp_bls12_381(&self.0, &R_INV.0))
+    }
+
     /// Internal function to multiply the internal representation by `R`, equivalent to transforming from
     /// a plain BigInt form back to the internal Montgomery form.
     /// Used as a bridge between the internal Montgomery representation and the zkvm precompiles.
@@ -849,6 +895,12 @@ impl Fp {
         unsafe {
             syscall_bls12381_fp_mulmod(self.0.as_mut_ptr() as *mut u32, R.0.as_ptr() as *const u32);
         }
+    }
+
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub(crate) fn mul_r_internal(&self) -> Fp {
+        Fp(mul_fp_bls12_381(&self.0, &R.0))
     }
 
     #[inline]
@@ -864,6 +916,7 @@ impl Fp {
     }
 
     /// CPU version of the squaring operation. Necessary to prevent syscalls in unconstrained mode.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     pub(crate) fn cpu_square(&self) -> Self {
         let (t1, carry) = mac(0, self.0[0], self.0[1], 0);
         let (t2, carry) = mac(0, self.0[0], self.0[2], carry);
@@ -924,6 +977,9 @@ impl Fp {
                 }
                 out.mul_r_inv_internal();
                 out
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                let out = Fp(square_fp_bls12_381(&self.0));
+                out.mul_r_inv_internal()
             } else {
                 self.cpu_square()
             }

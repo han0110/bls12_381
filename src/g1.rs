@@ -27,6 +27,9 @@ cfg_if::cfg_if! {
 #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
 use sp1_lib::{bls12381::decompress_pubkey, syscall_bls12381_add, syscall_bls12381_double};
 
+#[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+use ziskos::{add_bls12_381, dbl_bls12_381};
+
 /// This is an element of $\mathbb{G}_1$ represented in the affine coordinate space.
 /// It is ideal to keep elements in this representation to reduce memory usage and
 /// improve performance through the use of mixed curve model arithmetic.
@@ -471,6 +474,36 @@ impl G1Affine {
                     assert!(self.y + rhs.y == Fp::zero());
                     Self::identity()
                 }
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                if self.x != rhs.x {
+                    // P != Q,-Q
+                    let mut res = self.clone();
+                    res.x = res.x.mul_r_inv_internal();
+                    res.y = res.y.mul_r_inv_internal();
+                    let mut other = rhs.clone();
+                    other.x = other.x.mul_r_inv_internal();
+                    other.y = other.y.mul_r_inv_internal();
+                    unsafe {
+                        add_bls12_381(res.x.0.as_mut_ptr() as *mut u64, other.x.0.as_mut_ptr() as *const u64);
+                    }
+                    res.x = res.x.mul_r_internal();
+                    res.y = res.y.mul_r_internal();
+                    res
+                } else if self.y == rhs.y {
+                    // P == Q
+                    let mut res = self.clone();
+                    res.x = res.x.mul_r_inv_internal();
+                    res.y = res.y.mul_r_inv_internal();
+                    unsafe {
+                        dbl_bls12_381(res.x.0.as_mut_ptr() as *mut u64);
+                    }
+                    res.x = res.x.mul_r_internal();
+                    res.y = res.y.mul_r_internal();
+                    res
+                } else {
+                    // P == -Q
+                    Self::identity()
+                }
             } else {
                 let proj = G1Projective::from(rhs);
                 let res = proj + self;
@@ -494,6 +527,15 @@ impl G1Affine {
                 }
                 self.x.mul_r_internal();
                 self.y.mul_r_internal();
+                self
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                self.x = self.x.mul_r_inv_internal();
+                self.y = self.y.mul_r_inv_internal();
+                unsafe {
+                    dbl_bls12_381(self.x.0.as_mut_ptr() as *mut u64);
+                }
+                self.x = self.x.mul_r_internal();
+                self.y = self.y.mul_r_internal();
                 self
             } else {
                 let proj = G1Projective::from(self);
@@ -723,78 +765,135 @@ impl G1Projective {
 
     /// Computes the doubling of this point.
     pub fn double(&self) -> G1Projective {
-        // Algorithm 9, https://eprint.iacr.org/2015/1060.pdf
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                if self.is_identity().into() {
+                    return *self;
+                }
 
-        let t0 = self.y.square();
-        let z3 = t0 + t0;
-        let z3 = z3 + z3;
-        let z3 = z3 + z3;
-        let t1 = self.y * self.z;
-        let t2 = self.z.square();
-        let t2 = mul_by_3b(t2);
-        let x3 = t2 * z3;
-        let y3 = t0 + t2;
-        let z3 = t1 * z3;
-        let t1 = t2 + t2;
-        let t2 = t1 + t2;
-        let t0 = t0 - t2;
-        let y3 = t0 * y3;
-        let y3 = x3 + y3;
-        let t1 = self.x * self.y;
-        let x3 = t0 * t1;
-        let x3 = x3 + x3;
+                let mut self_affine = G1Affine::from(*self);
+                self_affine.x = self_affine.x.mul_r_inv_internal();
+                self_affine.y = self_affine.y.mul_r_inv_internal();
+                unsafe {
+                    dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
+                }
+                self_affine.x = self_affine.x.mul_r_internal();
+                self_affine.y = self_affine.y.mul_r_internal();
+                self_affine.into()
+            } else {
+                // Algorithm 9, https://eprint.iacr.org/2015/1060.pdf
 
-        let tmp = G1Projective {
-            x: x3,
-            y: y3,
-            z: z3,
-        };
+                let t0 = self.y.square();
+                let z3 = t0 + t0;
+                let z3 = z3 + z3;
+                let z3 = z3 + z3;
+                let t1 = self.y * self.z;
+                let t2 = self.z.square();
+                let t2 = mul_by_3b(t2);
+                let x3 = t2 * z3;
+                let y3 = t0 + t2;
+                let z3 = t1 * z3;
+                let t1 = t2 + t2;
+                let t2 = t1 + t2;
+                let t0 = t0 - t2;
+                let y3 = t0 * y3;
+                let y3 = x3 + y3;
+                let t1 = self.x * self.y;
+                let x3 = t0 * t1;
+                let x3 = x3 + x3;
 
-        G1Projective::conditional_select(&tmp, &G1Projective::identity(), self.is_identity())
+                let tmp = G1Projective {
+                    x: x3,
+                    y: y3,
+                    z: z3,
+                };
+
+                G1Projective::conditional_select(&tmp, &G1Projective::identity(), self.is_identity())
+            }
+        }
     }
 
     /// Adds this point to another point.
     pub fn add(&self, rhs: &G1Projective) -> G1Projective {
-        // Algorithm 7, https://eprint.iacr.org/2015/1060.pdf
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                if self.is_identity().into() {
+                    return *rhs;
+                } else if rhs.is_identity().into() {
+                    return *self;
+                }
 
-        let t0 = self.x * rhs.x;
-        let t1 = self.y * rhs.y;
-        let t2 = self.z * rhs.z;
-        let t3 = self.x + self.y;
-        let t4 = rhs.x + rhs.y;
-        let t3 = t3 * t4;
-        let t4 = t0 + t1;
-        let t3 = t3 - t4;
-        let t4 = self.y + self.z;
-        let x3 = rhs.y + rhs.z;
-        let t4 = t4 * x3;
-        let x3 = t1 + t2;
-        let t4 = t4 - x3;
-        let x3 = self.x + self.z;
-        let y3 = rhs.x + rhs.z;
-        let x3 = x3 * y3;
-        let y3 = t0 + t2;
-        let y3 = x3 - y3;
-        let x3 = t0 + t0;
-        let t0 = x3 + t0;
-        let t2 = mul_by_3b(t2);
-        let z3 = t1 + t2;
-        let t1 = t1 - t2;
-        let y3 = mul_by_3b(y3);
-        let x3 = t4 * y3;
-        let t2 = t3 * t1;
-        let x3 = t2 - x3;
-        let y3 = y3 * t0;
-        let t1 = t1 * z3;
-        let y3 = t1 + y3;
-        let t0 = t0 * t3;
-        let z3 = z3 * t4;
-        let z3 = z3 + t0;
+                let mut self_affine = G1Affine::from(*self);
+                let mut rhs_affine = G1Affine::from(*rhs);
+                if self_affine.x != rhs_affine.x {
+                    // P != Q,-Q
+                    self_affine.x = self_affine.x.mul_r_inv_internal();
+                    self_affine.y = self_affine.y.mul_r_inv_internal();
+                    rhs_affine.x = rhs_affine.x.mul_r_inv_internal();
+                    rhs_affine.y = rhs_affine.y.mul_r_inv_internal();
+                    unsafe {
+                        add_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64, rhs_affine.x.0.as_mut_ptr() as *const u64);
+                    }
+                    self_affine.x = self_affine.x.mul_r_internal();
+                    self_affine.y = self_affine.y.mul_r_internal();
+                    self_affine.into()
+                } else if self.y == rhs.y {
+                    // P == Q
+                    self_affine.x = self_affine.x.mul_r_inv_internal();
+                    self_affine.y = self_affine.y.mul_r_inv_internal();
+                    unsafe {
+                        dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
+                    }
+                    self_affine.x = self_affine.x.mul_r_internal();
+                    self_affine.y = self_affine.y.mul_r_internal();
+                    self_affine.into()
+                } else {
+                    // P == -Q
+                    Self::identity()
+                }
+            } else {
+                // Algorithm 7, https://eprint.iacr.org/2015/1060.pdf
 
-        G1Projective {
-            x: x3,
-            y: y3,
-            z: z3,
+                let t0 = self.x * rhs.x;
+                let t1 = self.y * rhs.y;
+                let t2 = self.z * rhs.z;
+                let t3 = self.x + self.y;
+                let t4 = rhs.x + rhs.y;
+                let t3 = t3 * t4;
+                let t4 = t0 + t1;
+                let t3 = t3 - t4;
+                let t4 = self.y + self.z;
+                let x3 = rhs.y + rhs.z;
+                let t4 = t4 * x3;
+                let x3 = t1 + t2;
+                let t4 = t4 - x3;
+                let x3 = self.x + self.z;
+                let y3 = rhs.x + rhs.z;
+                let x3 = x3 * y3;
+                let y3 = t0 + t2;
+                let y3 = x3 - y3;
+                let x3 = t0 + t0;
+                let t0 = x3 + t0;
+                let t2 = mul_by_3b(t2);
+                let z3 = t1 + t2;
+                let t1 = t1 - t2;
+                let y3 = mul_by_3b(y3);
+                let x3 = t4 * y3;
+                let t2 = t3 * t1;
+                let x3 = t2 - x3;
+                let y3 = y3 * t0;
+                let t1 = t1 * z3;
+                let y3 = t1 + y3;
+                let t0 = t0 * t3;
+                let z3 = z3 * t4;
+                let z3 = z3 + t0;
+
+                G1Projective {
+                    x: x3,
+                    y: y3,
+                    z: z3,
+                }
+            }
         }
     }
 
@@ -861,46 +960,61 @@ impl G1Projective {
     }
 
     /// Multiply `self` by `crate::BLS_X`, using double and add.
-    #[cfg(not(all(target_os = "zkvm", target_vendor = "succinct")))]
     fn mul_by_x(&self) -> G1Projective {
-        let mut xself = G1Projective::identity();
         // NOTE: in BLS12-381 we can just skip the first bit.
         let mut x = crate::BLS_X >> 1;
-        let mut tmp = *self;
-        while x != 0 {
-            tmp = tmp.double();
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
+                let mut xself = G1Affine::identity();
+                let mut tmp = G1Affine::from(*self);
+                while x != 0 {
+                    tmp = tmp.double();
 
-            if x % 2 == 1 {
-                xself += tmp;
+                    if x % 2 == 1 {
+                        xself = xself.add_affine(&tmp);
+                    }
+                    x >>= 1;
+                }
+                // finally, flip the sign
+                if crate::BLS_X_IS_NEGATIVE {
+                    xself = -xself;
+                }
+                xself.into()
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                // TODO: Speed this up by using the decomposition of x
+                let mut xself = G1Affine::identity();
+                let mut tmp = G1Affine::from(*self);
+                while x != 0 {
+                    tmp = tmp.double();
+
+                    if x % 2 == 1 {
+                        xself = xself.add_affine(&tmp);
+                    }
+                    x >>= 1;
+                }
+                // finally, flip the sign
+                if crate::BLS_X_IS_NEGATIVE {
+                    xself = -xself;
+                }
+                xself.into()
+            } else {
+                let mut xself = G1Projective::identity();
+                let mut tmp = *self;
+                while x != 0 {
+                    tmp = tmp.double();
+
+                    if x % 2 == 1 {
+                        xself += tmp;
+                    }
+                    x >>= 1;
+                }
+                // finally, flip the sign
+                if crate::BLS_X_IS_NEGATIVE {
+                    xself = -xself;
+                }
+                xself
             }
-            x >>= 1;
         }
-        // finally, flip the sign
-        if crate::BLS_X_IS_NEGATIVE {
-            xself = -xself;
-        }
-        xself
-    }
-
-    #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
-    fn mul_by_x(&self) -> G1Projective {
-        let mut xself = G1Affine::identity();
-
-        let mut x = crate::BLS_X >> 1;
-        let mut tmp = G1Affine::from(*self);
-        while x != 0 {
-            tmp = tmp.double();
-
-            if x % 2 == 1 {
-                xself = xself.add_affine(&tmp);
-            }
-            x >>= 1;
-        }
-        // finally, flip the sign
-        if crate::BLS_X_IS_NEGATIVE {
-            xself = -xself;
-        }
-        xself.into()
     }
 
     /// Multiplies by $(1 - z)$, where $z$ is the parameter of BLS12-381, which
