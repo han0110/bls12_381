@@ -478,27 +478,27 @@ impl G1Affine {
                 if self.x != rhs.x {
                     // P != Q,-Q
                     let mut res = self.clone();
-                    res.x = res.x.mul_r_inv_internal();
-                    res.y = res.y.mul_r_inv_internal();
+                    res.x.mul_r_inv_internal();
+                    res.y.mul_r_inv_internal();
                     let mut other = rhs.clone();
-                    other.x = other.x.mul_r_inv_internal();
-                    other.y = other.y.mul_r_inv_internal();
+                    other.x.mul_r_inv_internal();
+                    other.y.mul_r_inv_internal();
                     unsafe {
                         add_bls12_381(res.x.0.as_mut_ptr() as *mut u64, other.x.0.as_mut_ptr() as *const u64);
                     }
-                    res.x = res.x.mul_r_internal();
-                    res.y = res.y.mul_r_internal();
+                    res.x.mul_r_internal();
+                    res.y.mul_r_internal();
                     res
                 } else if self.y == rhs.y {
                     // P == Q
                     let mut res = self.clone();
-                    res.x = res.x.mul_r_inv_internal();
-                    res.y = res.y.mul_r_inv_internal();
+                    res.x.mul_r_inv_internal();
+                    res.y.mul_r_inv_internal();
                     unsafe {
                         dbl_bls12_381(res.x.0.as_mut_ptr() as *mut u64);
                     }
-                    res.x = res.x.mul_r_internal();
-                    res.y = res.y.mul_r_internal();
+                    res.x.mul_r_internal();
+                    res.y.mul_r_internal();
                     res
                 } else {
                     // P == -Q
@@ -529,13 +529,13 @@ impl G1Affine {
                 self.y.mul_r_internal();
                 self
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
-                self.x = self.x.mul_r_inv_internal();
-                self.y = self.y.mul_r_inv_internal();
+                self.x.mul_r_inv_internal();
+                self.y.mul_r_inv_internal();
                 unsafe {
                     dbl_bls12_381(self.x.0.as_mut_ptr() as *mut u64);
                 }
-                self.x = self.x.mul_r_internal();
-                self.y = self.y.mul_r_internal();
+                self.x.mul_r_internal();
+                self.y.mul_r_internal();
                 self
             } else {
                 let proj = G1Projective::from(self);
@@ -772,13 +772,13 @@ impl G1Projective {
                 }
 
                 let mut self_affine = G1Affine::from(*self);
-                self_affine.x = self_affine.x.mul_r_inv_internal();
-                self_affine.y = self_affine.y.mul_r_inv_internal();
+                self_affine.x.mul_r_inv_internal();
+                self_affine.y.mul_r_inv_internal();
                 unsafe {
                     dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
                 }
-                self_affine.x = self_affine.x.mul_r_internal();
-                self_affine.y = self_affine.y.mul_r_internal();
+                self_affine.x.mul_r_internal();
+                self_affine.y.mul_r_internal();
                 self_affine.into()
             } else {
                 // Algorithm 9, https://eprint.iacr.org/2015/1060.pdf
@@ -827,25 +827,25 @@ impl G1Projective {
                 let mut rhs_affine = G1Affine::from(*rhs);
                 if self_affine.x != rhs_affine.x {
                     // P != Q,-Q
-                    self_affine.x = self_affine.x.mul_r_inv_internal();
-                    self_affine.y = self_affine.y.mul_r_inv_internal();
-                    rhs_affine.x = rhs_affine.x.mul_r_inv_internal();
-                    rhs_affine.y = rhs_affine.y.mul_r_inv_internal();
+                    self_affine.x.mul_r_inv_internal();
+                    self_affine.y.mul_r_inv_internal();
+                    rhs_affine.x.mul_r_inv_internal();
+                    rhs_affine.y.mul_r_inv_internal();
                     unsafe {
                         add_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64, rhs_affine.x.0.as_mut_ptr() as *const u64);
                     }
-                    self_affine.x = self_affine.x.mul_r_internal();
-                    self_affine.y = self_affine.y.mul_r_internal();
+                    self_affine.x.mul_r_internal();
+                    self_affine.y.mul_r_internal();
                     self_affine.into()
-                } else if self.y == rhs.y {
+                } else if self_affine.y == rhs_affine.y {
                     // P == Q
-                    self_affine.x = self_affine.x.mul_r_inv_internal();
-                    self_affine.y = self_affine.y.mul_r_inv_internal();
+                    self_affine.x.mul_r_inv_internal();
+                    self_affine.y.mul_r_inv_internal();
                     unsafe {
                         dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
                     }
-                    self_affine.x = self_affine.x.mul_r_internal();
-                    self_affine.y = self_affine.y.mul_r_internal();
+                    self_affine.x.mul_r_internal();
+                    self_affine.y.mul_r_internal();
                     self_affine.into()
                 } else {
                     // P == -Q

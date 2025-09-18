@@ -258,7 +258,7 @@ impl Fp2 {
     /// the internal Montgomery form to a plain BigInt form.
     /// Used as a bridge between the internal Montgomery representation and the zkvm precompiles.
     #[inline]
-    #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+    #[cfg(all(target_os = "zkvm", any(target_vendor = "succinct", target_vendor = "zisk")))]
     pub(crate) fn mul_r_inv_internal(&mut self) {
         self.c0.mul_r_inv_internal();
         self.c1.mul_r_inv_internal();
@@ -266,20 +266,9 @@ impl Fp2 {
 
     #[inline]
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-    pub(crate) fn mul_r_inv_internal(&self) -> Fp2 {
-        Fp2 {
-            c0: self.c0.mul_r_inv_internal(),
-            c1: self.c1.mul_r_inv_internal(),
-        }
-    }
-
-    #[inline]
-    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-    pub(crate) fn mul_r_internal(&self) -> Fp2 {
-        Fp2 {
-            c0: self.c0.mul_r_internal(),
-            c1: self.c1.mul_r_internal(),
-        }
+    pub(crate) fn mul_r_internal(&mut self) {
+        self.c0.mul_r_internal();
+        self.c1.mul_r_internal();
     }
 
     #[inline]
@@ -332,7 +321,8 @@ impl Fp2 {
                 unsafe {
                     square_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64);
                 }
-                out.mul_r_inv_internal()
+                out.mul_r_inv_internal();
+                out
             } else {
                 self.cpu_square()
             }
@@ -385,7 +375,8 @@ impl Fp2 {
                 unsafe {
                     mul_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
                 }
-                out.mul_r_inv_internal()
+                out.mul_r_inv_internal();
+                out
             } else {
                 self.cpu_mul(rhs)
             }
@@ -706,13 +697,13 @@ impl Fp2 {
 
                 CtOption::new(inv, (self * inv).ct_eq(&Fp2::one()))
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
-                let mut self_canonical = self.mul_r_inv_internal();
+                let mut out = self.clone();
+                out.mul_r_inv_internal();
                 unsafe {
-                    inv_fp2_bls12_381(self_canonical.c0.0.as_mut_ptr() as *mut u64);
+                    inv_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64);
                 }
-                let inv_internal = self_canonical.mul_r_internal();
-
-                CtOption::new(inv_internal, Choice::from(1u8))
+                out.mul_r_internal();
+                CtOption::new(out, Choice::from(1u8))
             }  else {
                 self.cpu_invert()
             }
