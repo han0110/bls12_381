@@ -11,6 +11,10 @@ cfg_if! {
     if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
         use sp1_lib::sys_bigint;
         use sp1_lib::{io::{hint_slice, read_vec}, unconstrained};
+    } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+        use {
+            ziskos::{add_fr_bls12_381, mul_fr_bls12_381, square_fr_bls12_381, sub_fr_bls12_381, neg_fr_bls12_381, dbl_fr_bls12_381},
+        };
     }
 }
 
@@ -112,6 +116,14 @@ const R_INV: [u32; 8] = [
     0x3000_9d57,
     0x1bbe_8693,
 ];
+
+#[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+const R_INV: Scalar = Scalar([
+    0x13f7_5b69_fe75_c040,
+    0xab6f_ca8f_09dc_705f,
+    0x7204_078a_4f77_266a,
+    0x1bbe_8693_3000_9d57,
+]);
 
 // The number of bits needed to represent the modulus.
 const MODULUS_BITS: u32 = 255;
@@ -265,10 +277,17 @@ impl Scalar {
     }
 
     /// Doubles this field element.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     #[inline]
     pub const fn double(&self) -> Scalar {
         // TODO: This can be achieved more efficiently with a bitshift.
         self.add(self)
+    }
+
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    #[inline]
+    pub fn double(&self) -> Scalar {
+        Scalar(dbl_fr_bls12_381(&self.0))
     }
 
     /// Attempts to convert a little-endian byte representation of
@@ -396,6 +415,9 @@ impl Scalar {
                 let mut res = *self;
                 res.mul_inp(self);
                 res
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                let out = Scalar(square_fr_bls12_381(&self.0));
+                out.mul_r_inv_internal()
             } else {
                 self.cpu_square()
             }
@@ -570,8 +592,58 @@ impl Scalar {
         }
     }
 
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     #[inline(always)]
     pub const fn montgomery_reduce(
+        r0: u64,
+        r1: u64,
+        r2: u64,
+        r3: u64,
+        r4: u64,
+        r5: u64,
+        r6: u64,
+        r7: u64,
+    ) -> Self {
+        // The Montgomery reduction here is based on Algorithm 14.32 in
+        // Handbook of Applied Cryptography
+        // <http://cacr.uwaterloo.ca/hac/about/chap14.pdf>.
+
+        let k = r0.wrapping_mul(INV);
+        let (_, carry) = mac(r0, k, MODULUS.0[0], 0);
+        let (r1, carry) = mac(r1, k, MODULUS.0[1], carry);
+        let (r2, carry) = mac(r2, k, MODULUS.0[2], carry);
+        let (r3, carry) = mac(r3, k, MODULUS.0[3], carry);
+        let (r4, carry2) = adc(r4, 0, carry);
+
+        let k = r1.wrapping_mul(INV);
+        let (_, carry) = mac(r1, k, MODULUS.0[0], 0);
+        let (r2, carry) = mac(r2, k, MODULUS.0[1], carry);
+        let (r3, carry) = mac(r3, k, MODULUS.0[2], carry);
+        let (r4, carry) = mac(r4, k, MODULUS.0[3], carry);
+        let (r5, carry2) = adc(r5, carry2, carry);
+
+        let k = r2.wrapping_mul(INV);
+        let (_, carry) = mac(r2, k, MODULUS.0[0], 0);
+        let (r3, carry) = mac(r3, k, MODULUS.0[1], carry);
+        let (r4, carry) = mac(r4, k, MODULUS.0[2], carry);
+        let (r5, carry) = mac(r5, k, MODULUS.0[3], carry);
+        let (r6, carry2) = adc(r6, carry2, carry);
+
+        let k = r3.wrapping_mul(INV);
+        let (_, carry) = mac(r3, k, MODULUS.0[0], 0);
+        let (r4, carry) = mac(r4, k, MODULUS.0[1], carry);
+        let (r5, carry) = mac(r5, k, MODULUS.0[2], carry);
+        let (r6, carry) = mac(r6, k, MODULUS.0[3], carry);
+        let (r7, _) = adc(r7, carry2, carry);
+
+        // Result may be within MODULUS of the correct value
+        #[allow(clippy::needless_borrow)]
+        (&Scalar([r4, r5, r6, r7])).sub(&MODULUS)
+    }
+
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    #[inline(always)]
+    pub fn montgomery_reduce(
         r0: u64,
         r1: u64,
         r2: u64,
@@ -633,6 +705,12 @@ impl Scalar {
     }
 
     #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub(crate) fn mul_r_inv_internal(&self) -> Scalar {
+        Scalar(mul_fr_bls12_381(&self.0, &R_INV.0))
+    }
+
+    #[inline]
     pub fn mul_inp(&mut self, rhs: &Scalar) {
         cfg_if! {
             if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
@@ -688,6 +766,9 @@ impl Scalar {
                 let mut res = *self;
                 res.mul_inp(rhs);
                 res
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                let out = Scalar(mul_fr_bls12_381(&self.0, &rhs.0));
+                out.mul_r_inv_internal()
             } else {
                 self.cpu_mul(rhs)
             }
@@ -695,6 +776,7 @@ impl Scalar {
     }
 
     /// Subtracts `rhs` from `self`, returning the result.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     #[inline]
     pub const fn sub(&self, rhs: &Self) -> Self {
         let (d0, borrow) = sbb(self.0[0], rhs.0[0], 0);
@@ -712,7 +794,14 @@ impl Scalar {
         Scalar([d0, d1, d2, d3])
     }
 
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    #[inline]
+    pub fn sub(&self, rhs: &Self) -> Self {
+        Scalar(sub_fr_bls12_381(&self.0, &rhs.0))
+    }
+
     /// Adds `rhs` to `self`, returning the result.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     #[inline]
     pub const fn add(&self, rhs: &Self) -> Self {
         let (d0, carry) = adc(self.0[0], rhs.0[0], 0);
@@ -727,7 +816,14 @@ impl Scalar {
         (&Scalar([d0, d1, d2, d3])).sub(&MODULUS)
     }
 
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    #[inline]
+    pub fn add(&self, rhs: &Self) -> Self {
+        Scalar(add_fr_bls12_381(&self.0, &rhs.0))
+    }
+
     /// Negates `self`.
+    #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     #[inline]
     pub const fn neg(&self) -> Self {
         // Subtract `self` from `MODULUS` to negate. Ignore the final
@@ -743,6 +839,12 @@ impl Scalar {
         let mask = (((self.0[0] | self.0[1] | self.0[2] | self.0[3]) == 0) as u64).wrapping_sub(1);
 
         Scalar([d0 & mask, d1 & mask, d2 & mask, d3 & mask])
+    }
+
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    #[inline]
+    pub fn neg(&self) -> Self {
+        Scalar(neg_fr_bls12_381(&self.0))
     }
 
     #[inline]
