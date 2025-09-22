@@ -20,7 +20,7 @@ use {
 
 #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
 use {
-    ziskos::{mul_fp2_bls12_381, square_fp2_bls12_381, add_fp2_bls12_381, sub_fp2_bls12_381, neg_fp2_bls12_381, inv_fp2_bls12_381},
+    ziskos::{mul_fp2_bls12_381_ptr, square_fp2_bls12_381_ptr, add_fp2_bls12_381_ptr, sub_fp2_bls12_381_ptr, neg_fp2_bls12_381_ptr, inv_fp2_bls12_381_ptr},
 };
 
 #[derive(Copy, Clone)]
@@ -268,9 +268,15 @@ impl Fp2 {
     /// Used as a bridge between the internal Montgomery representation and the zkvm precompiles.
     #[inline]
     #[cfg(all(target_os = "zkvm", any(target_vendor = "succinct", target_vendor = "zisk")))]
-    pub(crate) fn mul_r_inv_internal(&mut self) {
+    pub fn mul_r_inv_internal(&mut self) {
         self.c0.mul_r_inv_internal();
         self.c1.mul_r_inv_internal();
+    }
+
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub fn mul_r_inv(&self) -> Fp2 {
+        Fp2{c0: self.c0.mul_r_inv(), c1: self.c1.mul_r_inv()}
     }
 
     #[inline]
@@ -328,7 +334,7 @@ impl Fp2 {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    square_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64);
+                    square_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64);
                 }
                 out.mul_r_inv_internal();
                 out
@@ -382,7 +388,7 @@ impl Fp2 {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    mul_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
+                    mul_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
                 }
                 out.mul_r_inv_internal();
                 out
@@ -433,7 +439,7 @@ impl Fp2 {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    add_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
+                    add_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
                 }
                 out
             } else {
@@ -473,7 +479,7 @@ impl Fp2 {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    sub_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
+                    sub_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64, rhs.c0.0.as_ptr() as *const u64);
                 }
                 out
             } else {
@@ -504,7 +510,7 @@ impl Fp2 {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    neg_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64);
+                    neg_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64);
                 }
                 out
             }  else {
@@ -709,7 +715,7 @@ impl Fp2 {
                 let mut out = self.clone();
                 out.mul_r_inv_internal();
                 unsafe {
-                    inv_fp2_bls12_381(out.c0.0.as_mut_ptr() as *mut u64);
+                    inv_fp2_bls12_381_ptr(out.c0.0.as_mut_ptr() as *mut u64);
                 }
                 out.mul_r_internal();
                 CtOption::new(out, Choice::from(1u8))

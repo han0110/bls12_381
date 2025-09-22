@@ -19,7 +19,7 @@ use {
 
 #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
 use {
-    ziskos::{add_fp_bls12_381, neg_fp_bls12_381, mul_fp_bls12_381, square_fp_bls12_381, inv_fp_bls12_381, sqrt_fp_bls12_381, sub_fp_bls12_381},
+    ziskos::{mul_fp_bls12_381, add_fp_bls12_381_ptr, neg_fp_bls12_381_ptr, mul_fp_bls12_381_ptr, square_fp_bls12_381_ptr, inv_fp_bls12_381_ptr, sqrt_fp_bls12_381_ptr, sub_fp_bls12_381_ptr},
 };
 
 // The internal representation of this type is six 64-bit unsigned
@@ -440,7 +440,7 @@ impl Fp {
 
                 let mut is_qr: u8 = 0;
                 unsafe {
-                    sqrt_fp_bls12_381(out.0.as_mut_ptr() as *mut u64, &mut is_qr as *mut u8);
+                    sqrt_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, &mut is_qr as *mut u8);
                 }
 
                 if is_qr == 1 {
@@ -498,7 +498,7 @@ impl Fp {
                 let mut out = self.clone();
                 out.mul_r_inv_internal();
                 unsafe {
-                    inv_fp_bls12_381(out.0.as_mut_ptr() as *mut u64);
+                    inv_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
                 }
                 out.mul_r_internal();
 
@@ -568,7 +568,7 @@ impl Fp {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    add_fp_bls12_381(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+                    add_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
                 }
                 out
             } else {
@@ -614,7 +614,7 @@ impl Fp {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    neg_fp_bls12_381(out.0.as_mut_ptr() as *mut u64);
+                    neg_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
                 }
                 out
             } else {
@@ -646,7 +646,7 @@ impl Fp {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    sub_fp_bls12_381(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+                    sub_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
                 }
                 out
             } else {
@@ -887,7 +887,7 @@ impl Fp {
             }  else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    mul_fp_bls12_381(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+                    mul_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
                 }
                 out.mul_r_inv_internal();
                 out
@@ -913,7 +913,7 @@ impl Fp {
                 }
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 unsafe {
-                    mul_fp_bls12_381(self.0.as_mut_ptr() as *mut u64, R_INV.0.as_ptr() as *const u64);
+                    mul_fp_bls12_381_ptr(self.0.as_mut_ptr() as *mut u64, R_INV.0.as_ptr() as *const u64);
                 }
             }
         }
@@ -921,7 +921,7 @@ impl Fp {
 
     #[inline]
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-    pub fn mul_r_inv_internal(&self) -> Fp {
+    pub fn mul_r_inv(&self) -> Fp {
         Fp(mul_fp_bls12_381(&self.0, &R_INV.0))
     }
 
@@ -938,7 +938,7 @@ impl Fp {
                 }
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 unsafe {
-                    mul_fp_bls12_381(self.0.as_mut_ptr() as *mut u64, R.0.as_ptr() as *const u64);
+                    mul_fp_bls12_381_ptr(self.0.as_mut_ptr() as *mut u64, R.0.as_ptr() as *const u64);
                 }
             }
         }
@@ -1021,7 +1021,7 @@ impl Fp {
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
                 let mut out = self.clone();
                 unsafe {
-                    square_fp_bls12_381(out.0.as_mut_ptr() as *mut u64);
+                    square_fp_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
                 }
                 out.mul_r_inv_internal();
                 out

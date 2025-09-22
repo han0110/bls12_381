@@ -28,7 +28,7 @@ cfg_if::cfg_if! {
 use sp1_lib::{bls12381::decompress_pubkey, syscall_bls12381_add, syscall_bls12381_double};
 
 #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-use ziskos::{add_bls12_381, dbl_bls12_381};
+use ziskos::{add_bls12_381_ptr, dbl_bls12_381_ptr};
 
 /// This is an element of $\mathbb{G}_1$ represented in the affine coordinate space.
 /// It is ideal to keep elements in this representation to reduce memory usage and
@@ -484,7 +484,7 @@ impl G1Affine {
                     other.x.mul_r_inv_internal();
                     other.y.mul_r_inv_internal();
                     unsafe {
-                        add_bls12_381(res.x.0.as_mut_ptr() as *mut u64, other.x.0.as_mut_ptr() as *const u64);
+                        add_bls12_381_ptr(res.x.0.as_mut_ptr() as *mut u64, other.x.0.as_mut_ptr() as *const u64);
                     }
                     res.x.mul_r_internal();
                     res.y.mul_r_internal();
@@ -495,7 +495,7 @@ impl G1Affine {
                     res.x.mul_r_inv_internal();
                     res.y.mul_r_inv_internal();
                     unsafe {
-                        dbl_bls12_381(res.x.0.as_mut_ptr() as *mut u64);
+                        dbl_bls12_381_ptr(res.x.0.as_mut_ptr() as *mut u64);
                     }
                     res.x.mul_r_internal();
                     res.y.mul_r_internal();
@@ -532,7 +532,7 @@ impl G1Affine {
                 self.x.mul_r_inv_internal();
                 self.y.mul_r_inv_internal();
                 unsafe {
-                    dbl_bls12_381(self.x.0.as_mut_ptr() as *mut u64);
+                    dbl_bls12_381_ptr(self.x.0.as_mut_ptr() as *mut u64);
                 }
                 self.x.mul_r_internal();
                 self.y.mul_r_internal();
@@ -775,7 +775,7 @@ impl G1Projective {
                 self_affine.x.mul_r_inv_internal();
                 self_affine.y.mul_r_inv_internal();
                 unsafe {
-                    dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
+                    dbl_bls12_381_ptr(self_affine.x.0.as_mut_ptr() as *mut u64);
                 }
                 self_affine.x.mul_r_internal();
                 self_affine.y.mul_r_internal();
@@ -832,7 +832,7 @@ impl G1Projective {
                     rhs_affine.x.mul_r_inv_internal();
                     rhs_affine.y.mul_r_inv_internal();
                     unsafe {
-                        add_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64, rhs_affine.x.0.as_mut_ptr() as *const u64);
+                        add_bls12_381_ptr(self_affine.x.0.as_mut_ptr() as *mut u64, rhs_affine.x.0.as_mut_ptr() as *const u64);
                     }
                     self_affine.x.mul_r_internal();
                     self_affine.y.mul_r_internal();
@@ -842,7 +842,7 @@ impl G1Projective {
                     self_affine.x.mul_r_inv_internal();
                     self_affine.y.mul_r_inv_internal();
                     unsafe {
-                        dbl_bls12_381(self_affine.x.0.as_mut_ptr() as *mut u64);
+                        dbl_bls12_381_ptr(self_affine.x.0.as_mut_ptr() as *mut u64);
                     }
                     self_affine.x.mul_r_internal();
                     self_affine.y.mul_r_internal();
