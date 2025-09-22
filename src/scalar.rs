@@ -13,7 +13,7 @@ cfg_if! {
         use sp1_lib::{io::{hint_slice, read_vec}, unconstrained};
     } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
         use {
-            ziskos::{add_fr_bls12_381, mul_fr_bls12_381, square_fr_bls12_381, sub_fr_bls12_381, neg_fr_bls12_381, dbl_fr_bls12_381},
+            ziskos::{add_fr_bls12_381_ptr, mul_fr_bls12_381_ptr, square_fr_bls12_381_ptr, sub_fr_bls12_381_ptr, neg_fr_bls12_381_ptr, dbl_fr_bls12_381_ptr},
         };
     }
 }
@@ -118,12 +118,12 @@ const R_INV: [u32; 8] = [
 ];
 
 #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-const R_INV: Scalar = Scalar([
+const R_INV: [u64; 4] = [
     0x13f7_5b69_fe75_c040,
     0xab6f_ca8f_09dc_705f,
     0x7204_078a_4f77_266a,
     0x1bbe_8693_3000_9d57,
-]);
+];
 
 // The number of bits needed to represent the modulus.
 const MODULUS_BITS: u32 = 255;
@@ -287,7 +287,11 @@ impl Scalar {
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
     #[inline]
     pub fn double(&self) -> Scalar {
-        Scalar(dbl_fr_bls12_381(&self.0))
+        let mut out = self.clone();
+        unsafe {
+            dbl_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
+        }
+        out
     }
 
     /// Attempts to convert a little-endian byte representation of
@@ -416,8 +420,12 @@ impl Scalar {
                 res.mul_inp(self);
                 res
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
-                let out = Scalar(square_fr_bls12_381(&self.0));
-                out.mul_r_inv_internal()
+                let mut out = self.clone();
+                unsafe {
+                    square_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
+                }
+                out.mul_r_inv_internal();
+                out
             } else {
                 self.cpu_square()
             }
@@ -691,23 +699,25 @@ impl Scalar {
     }
 
     #[inline]
-    #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+    #[cfg(all(target_os = "zkvm", any(target_vendor = "succinct", target_vendor = "zisk")))]
     pub(crate) fn mul_r_inv_internal(&mut self) {
-        unsafe {
-            sys_bigint(
-                self.0.as_mut_ptr() as *mut [u32; 8],
-                0,
-                self.0.as_ptr() as *const [u32; 8],
-                &R_INV,
-                &MODULUS_LIMBS_32,
-            );
+        cfg_if::cfg_if! {
+            if #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))] {
+                unsafe {
+                    sys_bigint(
+                        self.0.as_mut_ptr() as *mut [u32; 8],
+                        0,
+                        self.0.as_ptr() as *const [u32; 8],
+                        &R_INV,
+                        &MODULUS_LIMBS_32,
+                    );
+                }
+            } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
+                unsafe {
+                    mul_fr_bls12_381_ptr(self.0.as_mut_ptr() as *mut u64, R_INV.as_ptr() as *const u64);
+                }
+            }
         }
-    }
-
-    #[inline]
-    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
-    pub(crate) fn mul_r_inv_internal(&self) -> Scalar {
-        Scalar(mul_fr_bls12_381(&self.0, &R_INV.0))
     }
 
     #[inline]
@@ -767,8 +777,12 @@ impl Scalar {
                 res.mul_inp(rhs);
                 res
             } else if #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))] {
-                let out = Scalar(mul_fr_bls12_381(&self.0, &rhs.0));
-                out.mul_r_inv_internal()
+                let mut out = self.clone();
+                unsafe {
+                    mul_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+                }
+                out.mul_r_inv_internal();
+                out
             } else {
                 self.cpu_mul(rhs)
             }
@@ -797,7 +811,11 @@ impl Scalar {
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
     #[inline]
     pub fn sub(&self, rhs: &Self) -> Self {
-        Scalar(sub_fr_bls12_381(&self.0, &rhs.0))
+        let mut out = self.clone();
+        unsafe {
+            sub_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+        }
+        out
     }
 
     /// Adds `rhs` to `self`, returning the result.
@@ -819,7 +837,11 @@ impl Scalar {
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
     #[inline]
     pub fn add(&self, rhs: &Self) -> Self {
-        Scalar(add_fr_bls12_381(&self.0, &rhs.0))
+        let mut out = self.clone();
+        unsafe {
+            add_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64, rhs.0.as_ptr() as *const u64);
+        }
+        out
     }
 
     /// Negates `self`.
@@ -844,7 +866,11 @@ impl Scalar {
     #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
     #[inline]
     pub fn neg(&self) -> Self {
-        Scalar(neg_fr_bls12_381(&self.0))
+        let mut out = self.clone();
+        unsafe {
+            neg_fr_bls12_381_ptr(out.0.as_mut_ptr() as *mut u64);
+        }
+        out
     }
 
     #[inline]
