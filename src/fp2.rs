@@ -254,6 +254,15 @@ impl Fp2 {
         )
     }
 
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub fn to_u64(&self) -> [u64; 12] {
+        let mut res = [0u64; 12];
+        res[..6].copy_from_slice(&self.c0.to_u64());
+        res[6..].copy_from_slice(&self.c1.to_u64());
+        res
+    }
+
     /// Internal function to multiply the internal representation by `R_INV`, equivalent to transforming from
     /// the internal Montgomery form to a plain BigInt form.
     /// Used as a bridge between the internal Montgomery representation and the zkvm precompiles.

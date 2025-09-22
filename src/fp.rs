@@ -329,6 +329,12 @@ impl Fp {
         Fp(v)
     }
 
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub const fn to_u64(&self) -> [u64; 6] {
+        self.0
+    }
+
     /// CPU version of the exponentiation operation. Necessary to prevent syscalls in unconstrained mode.
     #[cfg(not(all(target_os = "zkvm", target_vendor = "zisk")))]
     pub(crate) fn cpu_pow_vartime(&self, by: &[u64; 6]) -> Self {
@@ -911,6 +917,12 @@ impl Fp {
                 }
             }
         }
+    }
+
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub fn mul_r_inv_internal(&self) -> Fp {
+        Fp(mul_fp_bls12_381(&self.0, &R_INV.0))
     }
 
     /// Internal function to multiply the internal representation by `R`, equivalent to transforming from
