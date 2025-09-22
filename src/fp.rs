@@ -17,6 +17,9 @@ use {
     sp1_lib::{syscall_bls12381_fp_addmod, syscall_bls12381_fp_mulmod, syscall_bls12381_fp_submod},
 };
 
+#[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+use ziskos::mul_fp_bls12_381;
+
 // The internal representation of this type is six 64-bit unsigned
 // integers in little-endian order. `Fp` values are always in
 // Montgomery form; i.e., Scalar(a) = aR mod p, with R = 2^384.
@@ -90,7 +93,7 @@ const MODULUS: [u64; 6] = [
 const INV: u64 = 0x89f3_fffc_fffc_fffd;
 
 /// R_INV = (2^384)^(-1) mod p
-#[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
+#[cfg(all(target_os = "zkvm", any(target_vendor = "succinct", target_vendor = "zisk")))]
 const R_INV: Fp = Fp([
     0xf4d38259380b4820,
     0x7fe11274d898fafb,
@@ -324,6 +327,12 @@ impl Fp {
         Fp(v)
     }
 
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub const fn to_u64(&self) -> [u64; 6] {
+        self.0
+    }
+
     /// CPU version of the exponentiation operation. Necessary to prevent syscalls in unconstrained mode.
     pub(crate) fn cpu_pow_vartime(&self, by: &[u64; 6]) -> Self {
         let mut res = Self::one();
@@ -378,6 +387,7 @@ impl Fp {
 
     #[inline]
     pub fn sqrt(&self) -> CtOption<Self> {
+        println!("HEYY");
         #[cfg(all(target_os = "zkvm", target_vendor = "succinct"))]
         {
             if self.is_zero().into() {
@@ -838,6 +848,12 @@ impl Fp {
                 R_INV.0.as_ptr() as *const u32,
             );
         }
+    }
+
+    #[inline]
+    #[cfg(all(target_os = "zkvm", target_vendor = "zisk"))]
+    pub fn mul_r_inv_internal(&self) -> Fp {
+        Fp(mul_fp_bls12_381(&self.0, &R_INV.0))
     }
 
     /// Internal function to multiply the internal representation by `R`, equivalent to transforming from
