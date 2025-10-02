@@ -27,8 +27,8 @@ subtle = { version = "2.2.1", default-features = false }
 zeroize = { version = "1.4", optional = true, default-features = false }
 hex = { version = "0.4", optional = true, default-features = false, features = ["alloc"] }
 
-[target.'cfg(all(target_os = "zkvm", target_vendor = "succinct"))'.dependencies]
-sp1-lib = { version = "4.0.0", default-features = false }
+# [target.'cfg(all(target_os = "zkvm", target_vendor = "succinct"))'.dependencies]
+# sp1-lib = { version = "4.0.0", default-features = false }
 
 [target.'cfg(all(target_os = "zkvm", target_vendor = "zisk"))'.dependencies]
 ziskos = { git = "https://github.com/0xPolygonHermez/zisk.git", branch = "pre-develop-0.12.0" }
